@@ -1,9 +1,12 @@
 {
   "name": "structured-desktop",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "A cross-platform desktop shell for Structured Web with normal and widget window modes.",
   "homepage": "https://github.com/structured-desktop/structured-desktop",
-  "author": { "name": "Structured Desktop contributors", "email": "opensource@structured-desktop.app" },
+  "author": {
+    "name": "Structured Desktop contributors",
+    "email": "opensource@structured-desktop.app"
+  },
   "license": "MIT",
   "main": "dist/main/index.js",
   "type": "commonjs",
@@ -20,7 +23,9 @@
   "build": {
     "appId": "app.structured.desktop",
     "productName": "Structured Desktop",
-    "directories": { "output": "release" },
+    "directories": {
+      "output": "release"
+    },
     "asar": true,
     "files": [
       "dist/**/*",
@@ -28,13 +33,23 @@
       "package.json"
     ],
     "linux": {
-      "target": ["deb", "AppImage"],
+      "target": [
+        "deb",
+        "AppImage"
+      ],
       "category": "Office",
       "icon": "assets/icon.png",
       "artifactName": "structured-desktop-${version}-${arch}.${ext}"
     },
     "win": {
-      "target": [{"target": "nsis", "arch": ["x64"]}],
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
       "artifactName": "structured-desktop-${version}-${arch}.${ext}"
     },
     "nsis": {
