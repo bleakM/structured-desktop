@@ -37,6 +37,7 @@ export class WindowManager {
       show: false,
       title: 'Structured Desktop',
       frame: settings.window.mode === 'normal',
+      type: process.platform === 'linux' && settings.window.mode === 'widget' ? 'toolbar' : undefined,
       resizable: true,
       movable: true,
       minimizable: true,
@@ -68,6 +69,10 @@ export class WindowManager {
     await this.attachLocalView();
     this.layout();
     window.show();
+    // Mutter may ignore the constructor hint until the X11 window is mapped.
+    // Apply it again after showing so Widget mode can leave the taskbar on
+    // GNOME/X11 while keeping the window interactive.
+    window.setSkipTaskbar(settings.window.mode === 'widget');
     window.focus();
     return window;
   }
