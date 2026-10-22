@@ -39,4 +39,4 @@ Structured 页面与本地控制层使用不同 WebContentsView；远程页面�
 
 ## 已知构建状态
 
-当前 Ubuntu 已生成 `release/structured-desktop-0.1.0-x86_64.AppImage`。Windows NSIS 的配置已验证，Linux 上可生成 Windows 归档，但完整 NSIS 安装器需要 Windows runner（本机未安装 Wine）。`.deb` 目标依赖 electron-builder 的 Linux fpm 工具链；如果本机工具链下载或执行超时，可使用 GitHub Linux runner 生成。
+Linux 与 Windows 安装包由 GitHub Actions 按版本标签构建并上传到 Releases。Windows NSIS 需要 Windows runner；Linux `.deb` 与 AppImage 由 Ubuntu runner 生成。

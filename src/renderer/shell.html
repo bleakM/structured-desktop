@@ -39,7 +39,7 @@
       document.body.classList.toggle('widget', state.mode === 'widget');
       document.querySelector('#timeline').classList.toggle('active', state.page === 'timeline');
       document.querySelector('#inbox').classList.toggle('active', state.page === 'inbox');
-      document.querySelector('#status').textContent = state.mode === 'widget' ? 'Widget' : '';
+      document.querySelector('#status').textContent = state.error || (state.loading ? '正在加载 Structured…' : state.mode === 'widget' ? 'Widget' : '');
     });
   </script>
 </body>

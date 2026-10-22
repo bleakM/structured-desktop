@@ -45,7 +45,8 @@
     function collect() { return { autoStart: $('autoStart').checked, startupPage: $('page').value, window: { mode: $('mode').value, width: Number($('width').value), height: Number($('height').value), displayId: $('display').value, positionMode: $('position').value, x: Number($('x').value), y: Number($('y').value) } }; }
     $('save').onclick = () => { const p = collect(); if (!Number.isFinite(p.window.width) || !Number.isFinite(p.window.height) || p.window.width < 320 || p.window.height < 240) return alert('请输入有效的窗口尺寸。'); api.send('settings-save', p); };
     $('close').onclick = () => api.send('settings-close'); $('quit').onclick = () => api.send('shell-quit'); $('reset').onclick = () => api.send('settings-reset-window');
-    $('useCurrent').onclick = () => { if (state?.settings?.window) { $('width').value = state.settings.window.lastWidth || state.settings.window.width; $('height').value = state.settings.window.lastHeight || state.settings.window.height; } };
+    $('useCurrent').onclick = () => api.send('settings-use-current-size');
+    api?.onCurrentSize?.(({ width, height }) => { $('width').value = width; $('height').value = height; });
     api?.onState?.(fill);
   </script>
 </body>

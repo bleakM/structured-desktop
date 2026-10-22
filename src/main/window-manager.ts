@@ -15,7 +15,11 @@ export class WindowManager {
   private localView?: WebContentsView;
   private settingsView?: WebContentsView;
   private ready = false;
+  private structuredPageLoaded = false;
+  private structuredPageActivated = false;
   private currentPage: StartupPage;
+  private navigationQueue: Promise<void> = Promise.resolve();
+  private navigationError?: string;
 
   constructor(private readonly store: SettingsStore) { this.currentPage = store.get().startupPage; }
 
@@ -48,17 +52,24 @@ export class WindowManager {
         webviewTag: false
       }
     };
-    this.window = new BrowserWindow(options);
-    this.window.setMenuBarVisibility(false);
-    this.window.on('resize', () => { this.layout(); this.persistLastBounds(); });
-    this.window.on('move', () => this.persistLastBounds());
-    this.window.on('close', () => { void this.persistLastBounds(); });
-    this.window.on('closed', () => { this.disposeViews(); this.window = undefined; });
+    const window = new BrowserWindow(options);
+    this.window = window;
+    window.setMenuBarVisibility(false);
+    window.on('resize', () => { this.layout(); this.persistLastBounds(); });
+    window.on('move', () => this.persistLastBounds());
+    window.on('close', () => { void this.persistLastBounds(); });
+    window.on('closed', () => {
+      if (this.window !== window) return;
+      this.disposeViews();
+      this.window = undefined;
+      this.ready = false;
+    });
     await this.attachStructuredView();
     await this.attachLocalView();
-    this.window.show();
-    this.window.focus();
-    return this.window;
+    this.layout();
+    window.show();
+    window.focus();
+    return window;
   }
 
   private async attachStructuredView(): Promise<void> {
@@ -72,9 +83,25 @@ export class WindowManager {
       spellcheck: true
     }});
     this.window.contentView.addChildView(this.webView);
+    this.webView.webContents.on('did-start-navigation', (_event, _url, _isInPlace, isMainFrame) => {
+      if (!isMainFrame) return;
+      this.ready = false;
+      this.structuredPageLoaded = false;
+      this.structuredPageActivated = false;
+      this.navigationError = undefined;
+      void this.sendShellState();
+    });
     this.webView.webContents.on('did-finish-load', () => {
-      this.ready = true;
-      void this.navigate(this.currentPage).catch(() => undefined);
+      this.structuredPageLoaded = true;
+      this.activateStructuredPage();
+    });
+    this.webView.webContents.on('did-fail-load', (_event, errorCode, errorDescription, _validatedURL, isMainFrame) => {
+      if (!isMainFrame || errorCode === -3) return;
+      this.ready = false;
+      this.structuredPageLoaded = false;
+      this.structuredPageActivated = false;
+      this.navigationError = `Structured 页面加载失败：${errorDescription}`;
+      void this.sendShellState();
     });
     this.webView.webContents.setWindowOpenHandler(({ url }) => {
       if (url.startsWith('https://web.structured.app/')) return { action: 'allow' };
@@ -83,17 +110,21 @@ export class WindowManager {
     this.webView.webContents.on('will-navigate', (event, url) => {
       if (!url.startsWith('https://web.structured.app/')) event.preventDefault();
     });
-    await this.webView.webContents.loadURL(STRUCTURED_URL);
+    void this.webView.webContents.loadURL(STRUCTURED_URL).catch((error: unknown) => {
+      this.ready = false;
+      this.navigationError = `Structured 页面加载失败：${error instanceof Error ? error.message : String(error)}`;
+      void this.sendShellState();
+    });
   }
 
   private async attachLocalView(): Promise<void> {
     if (!this.window) return;
     this.localView = new WebContentsView({ webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true, preload: require('node:path').join(__dirname, '../preload/shell.js') }});
     this.window.contentView.addChildView(this.localView);
-    await this.localView.webContents.loadFile(require('node:path').join(__dirname, '../renderer/shell.html'));
     this.localView.webContents.on('did-finish-load', () => {
       void this.sendShellState();
     });
+    await this.localView.webContents.loadFile(require('node:path').join(__dirname, '../renderer/shell.html'));
   }
 
   async handleLocalMessage(channel: string, args: unknown[]): Promise<void> {
@@ -104,18 +135,45 @@ export class WindowManager {
     if (channel === 'settings-save') await this.saveSettings(args[0] as AppSettingsPatch);
     if (channel === 'settings-close') await this.closeSettings();
     if (channel === 'settings-reset-window') await this.resetWindow();
+    if (channel === 'settings-use-current-size') await this.sendCurrentWindowSize();
   }
 
   private async sendShellState(): Promise<void> {
     if (!this.localView) return;
     const settings = this.store.get();
-    await this.localView.webContents.send('shell-state', { mode: settings.window.mode, page: this.currentPage, settings, displays: this.getDisplays() });
+    await this.localView.webContents.send('shell-state', {
+      mode: settings.window.mode,
+      page: this.currentPage,
+      settings,
+      displays: this.getDisplays(),
+      loading: !this.ready && !this.navigationError,
+      error: this.navigationError
+    });
   }
 
   async navigate(page: StartupPage): Promise<void> {
     this.currentPage = page;
-    if (this.ready && this.webView) await new StructuredUiAdapter(this.webView.webContents).navigate(page);
     await this.sendShellState();
+    if (!this.ready || !this.webView) return;
+    this.navigationQueue = this.navigationQueue.catch(() => undefined).then(async () => {
+      if (!this.ready || !this.webView) return;
+      const target = this.currentPage;
+      try {
+        await new StructuredUiAdapter(this.webView.webContents).navigate(target);
+        this.navigationError = undefined;
+      } catch (error) {
+        this.navigationError = error instanceof Error ? error.message : String(error);
+      } finally {
+        await this.sendShellState();
+      }
+    });
+    await this.navigationQueue;
+  }
+
+  private async sendCurrentWindowSize(): Promise<void> {
+    if (!this.window || !this.settingsView) return;
+    const [width, height] = this.window.getSize();
+    await this.settingsView.webContents.send('settings-current-size', { width, height });
   }
 
   private layout(): void {
@@ -126,6 +184,18 @@ export class WindowManager {
     this.webView?.setBounds({ x: 0, y: toolbarHeight, width, height: Math.max(1, height - toolbarHeight) });
     this.localView?.setBounds({ x: 0, y: 0, width, height: toolbarHeight });
     this.settingsView?.setBounds({ x: Math.max(16, width - Math.min(520, width - 32)), y: 16, width: Math.min(504, width - 32), height: Math.min(height - 32, 720) });
+    this.activateStructuredPage();
+  }
+
+  private activateStructuredPage(): void {
+    if (!this.window || !this.webView || !this.structuredPageLoaded || this.structuredPageActivated) return;
+    const bounds = this.webView.getBounds();
+    if (bounds.width < 1 || bounds.height < 1) return;
+    this.structuredPageActivated = true;
+    this.ready = true;
+    this.navigationError = undefined;
+    void this.sendShellState();
+    void this.navigate(this.currentPage);
   }
 
   private persistLastBounds(): void {
@@ -157,6 +227,8 @@ export class WindowManager {
     oldWindow.destroy();
     this.window = undefined;
     this.ready = false;
+    this.structuredPageLoaded = false;
+    this.structuredPageActivated = false;
     this.currentPage = currentPage;
     await this.create();
   }
@@ -174,6 +246,7 @@ export class WindowManager {
       this.window.contentView.addChildView(this.settingsView);
       await this.settingsView.webContents.loadFile(require('node:path').join(__dirname, '../renderer/settings.html'));
     }
+    this.layout();
     this.settingsView.setBackgroundColor('#ffffff');
     this.settingsView.setBounds({ x: 16, y: 16, width: Math.min(504, this.window.getBounds().width - 32), height: Math.min(this.window.getBounds().height - 32, 720) });
     await this.settingsView.webContents.send('settings-state', { settings: this.store.get(), displays: this.getDisplays(), environment: detectWindowEnvironment() });
@@ -193,6 +266,7 @@ export class WindowManager {
       if (!view.webContents.isDestroyed()) view.webContents.close();
     }
     this.webView = undefined; this.localView = undefined; this.settingsView = undefined;
+    this.ready = false;
   }
 
   async quit(): Promise<void> {
