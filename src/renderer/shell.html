@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Structured Desktop</title>
+  <style>
+    :root { color-scheme: light; font-family: Inter, ui-sans-serif, system-ui, sans-serif; }
+    * { box-sizing: border-box; }
+    body { margin: 0; color: #343345; background: rgba(247,247,251,.96); }
+    .bar { height: 54px; display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-bottom: 1px solid #e3e2eb; }
+    .widget .bar { height: 42px; background: rgba(255,255,255,.92); border-radius: 0 0 10px 10px; padding: 5px 8px; }
+    .drag { flex: 1; height: 100%; display: flex; align-items: center; gap: 8px; app-region: drag; -webkit-app-region: drag; user-select: none; }
+    .widget .drag { cursor: move; }
+    button { border: 0; background: transparent; border-radius: 8px; padding: 7px 10px; color: inherit; font: inherit; cursor: pointer; }
+    button:hover { background: #e9e8f4; }
+    button.active { background: #635bff; color: #fff; }
+    .brand { font-weight: 700; letter-spacing: -.02em; }
+    .actions { display: flex; gap: 2px; app-region: no-drag; -webkit-app-region: no-drag; }
+    .widget .brand { display: none; }
+    .widget .nav { display: none; }
+    .hint { color: #77748a; font-size: 12px; }
+  </style>
+</head>
+<body>
+  <header class="bar" id="bar">
+    <div class="drag"><span class="brand">Structured Desktop</span><span class="hint" id="status"></span></div>
+    <nav class="nav actions" aria-label="页面"><button id="timeline">Timeline</button><button id="inbox">Inbox</button></nav>
+    <div class="actions" aria-label="应用控制"><button id="refresh" title="刷新">↻</button><button id="settings" title="设置">⚙</button><button id="quit" title="退出应用">×</button></div>
+  </header>
+  <script>
+    const api = window.structuredShell;
+    const send = (channel, value) => api?.send(channel, value);
+    document.querySelector('#timeline').onclick = () => send('shell-navigate', 'timeline');
+    document.querySelector('#inbox').onclick = () => send('shell-navigate', 'inbox');
+    document.querySelector('#refresh').onclick = () => send('shell-refresh');
+    document.querySelector('#settings').onclick = () => send('shell-settings');
+    document.querySelector('#quit').onclick = () => send('shell-quit');
+    api?.onState((state) => {
+      document.body.classList.toggle('widget', state.mode === 'widget');
+      document.querySelector('#timeline').classList.toggle('active', state.page === 'timeline');
+      document.querySelector('#inbox').classList.toggle('active', state.page === 'inbox');
+      document.querySelector('#status').textContent = state.mode === 'widget' ? 'Widget' : '';
+    });
+  </script>
+</body>
+</html>

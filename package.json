@@ -1,0 +1,57 @@
+{
+  "name": "structured-desktop",
+  "version": "0.1.0",
+  "description": "A cross-platform desktop shell for Structured Web with normal and widget window modes.",
+  "homepage": "https://github.com/structured-desktop/structured-desktop",
+  "author": { "name": "Structured Desktop contributors", "email": "opensource@structured-desktop.app" },
+  "license": "MIT",
+  "main": "dist/main/index.js",
+  "type": "commonjs",
+  "scripts": {
+    "dev": "npm run build:app && electron .",
+    "start": "electron .",
+    "build:app": "tsc && node scripts/copy-assets.mjs",
+    "build": "npm run build:app",
+    "test": "tsx --test test/**/*.test.ts",
+    "typecheck": "tsc --noEmit",
+    "build:linux": "npm run build:app && electron-builder --linux deb AppImage --publish never",
+    "build:win": "npm run build:app && electron-builder --win nsis --publish never"
+  },
+  "build": {
+    "appId": "app.structured.desktop",
+    "productName": "Structured Desktop",
+    "directories": { "output": "release" },
+    "asar": true,
+    "files": [
+      "dist/**/*",
+      "assets/**/*",
+      "package.json"
+    ],
+    "linux": {
+      "target": ["deb", "AppImage"],
+      "category": "Office",
+      "icon": "assets/icon.png",
+      "artifactName": "structured-desktop-${version}-${arch}.${ext}"
+    },
+    "win": {
+      "target": [{"target": "nsis", "arch": ["x64"]}],
+      "artifactName": "structured-desktop-${version}-${arch}.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
+    }
+  },
+  "dependencies": {
+    "electron-log": "^5.2.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "electron": "^39.1.0",
+    "electron-builder": "^26.0.12",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  }
+}

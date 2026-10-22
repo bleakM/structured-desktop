@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>设置</title>
+  <style>
+    :root { font-family: Inter, ui-sans-serif, system-ui, sans-serif; color: #343345; } * { box-sizing: border-box; }
+    body { margin: 0; background: #fff; border: 1px solid #dddbe8; border-radius: 14px; padding: 20px; box-shadow: 0 12px 40px #2222; overflow: auto; }
+    h1 { margin: 0 0 18px; font-size: 21px; } h2 { margin: 20px 0 8px; font-size: 14px; color: #67647c; }
+    label { display: block; margin: 9px 0; font-size: 13px; } select, input { width: 100%; border: 1px solid #d5d3e0; border-radius: 7px; padding: 8px; font: inherit; background: #fff; }
+    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; } .row { display: flex; align-items: center; gap: 8px; }
+    .row input[type=checkbox] { width: auto; } .buttons { display: flex; gap: 8px; margin-top: 18px; flex-wrap: wrap; }
+    button { border: 0; border-radius: 8px; padding: 9px 12px; font: inherit; cursor: pointer; background: #ecebf5; color: #343345; } button.primary { color: #fff; background: #635bff; }
+    button.danger { background: #fee8e7; color: #a12828; } .note { font-size: 12px; color: #77748a; line-height: 1.5; }
+  </style>
+</head>
+<body>
+  <h1>Structured Desktop 设置</h1>
+  <div id="form" hidden>
+    <h2>显示模式与页面</h2>
+    <label>窗口模式<select id="mode"><option value="normal">普通窗口</option><option value="widget">桌面组件</option></select></label>
+    <label>启动页面<select id="page"><option value="timeline">Timeline</option><option value="inbox">Inbox</option></select></label>
+    <label class="row"><input id="autoStart" type="checkbox"> 登录系统后自动启动</label>
+    <h2>启动窗口尺寸（DIP）</h2>
+    <div class="grid"><label>宽度<input id="width" type="number" min="320" max="3840" step="1"></label><label>高度<input id="height" type="number" min="240" max="2160" step="1"></label></div>
+    <button id="useCurrent">使用当前窗口大小</button>
+    <h2>启动位置</h2>
+    <label>目标显示器<select id="display"></select></label>
+    <label>位置预设<select id="position"><option value="center">屏幕中央</option><option value="top-left">左上角</option><option value="top-right">右上角</option><option value="bottom-left">左下角</option><option value="bottom-right">右下角</option><option value="last">上次关闭时的位置</option><option value="custom">自定义坐标</option></select></label>
+    <div class="grid"><label>X 坐标<input id="x" type="number" step="1"></label><label>Y 坐标<input id="y" type="number" step="1"></label></div>
+    <p class="note" id="environment">窗口定位能力检测中…</p>
+    <div class="buttons"><button class="primary" id="save">保存</button><button id="reset">重置窗口位置与大小</button><button id="close">关闭</button><button class="danger" id="quit">退出应用</button></div>
+  </div>
+  <script>
+    const api = window.structuredSettings; let state;
+    const $ = (id) => document.getElementById(id);
+    function fill(next) {
+      state = next; const s = next.settings; $('form').hidden = false;
+      $('mode').value = s.window.mode; $('page').value = s.startupPage; $('autoStart').checked = s.autoStart;
+      $('width').value = s.window.width; $('height').value = s.window.height; $('position').value = s.window.positionMode;
+      $('x').value = Number.isFinite(s.window.x) ? s.window.x : ''; $('y').value = Number.isFinite(s.window.y) ? s.window.y : '';
+      $('display').innerHTML = (next.displays || []).map((d) => `<option value="${d.id}">${d.label} · ${d.workArea.width}×${d.workArea.height} · ${d.scaleFactor}x</option>`).join('');
+      $('display').value = s.window.displayId || (next.displays?.[0]?.id || '');
+      $('environment').textContent = next.environment?.explanation || 'Widget 模式使用无标题栏与 Electron skipTaskbar；Linux 的任务栏行为取决于窗口管理器。Wayland 可能不允许精确定位。';
+    }
+    function collect() { return { autoStart: $('autoStart').checked, startupPage: $('page').value, window: { mode: $('mode').value, width: Number($('width').value), height: Number($('height').value), displayId: $('display').value, positionMode: $('position').value, x: Number($('x').value), y: Number($('y').value) } }; }
+    $('save').onclick = () => { const p = collect(); if (!Number.isFinite(p.window.width) || !Number.isFinite(p.window.height) || p.window.width < 320 || p.window.height < 240) return alert('请输入有效的窗口尺寸。'); api.send('settings-save', p); };
+    $('close').onclick = () => api.send('settings-close'); $('quit').onclick = () => api.send('shell-quit'); $('reset').onclick = () => api.send('settings-reset-window');
+    $('useCurrent').onclick = () => { if (state?.settings?.window) { $('width').value = state.settings.window.lastWidth || state.settings.window.width; $('height').value = state.settings.window.lastHeight || state.settings.window.height; } };
+    api?.onState?.(fill);
+  </script>
+</body>
+</html>
