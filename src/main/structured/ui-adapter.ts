@@ -68,16 +68,42 @@ function waitForInboxControl(inspect: () => InboxDomState, timeoutMs: number): P
   return new Promise((resolve) => {
     let finished = false;
     const observer = new MutationObserver(check);
+    const interval = window.setInterval(check, 250);
     const timeout = window.setTimeout(() => finish(false), timeoutMs);
     function finish(success: boolean): void {
       if (finished) return;
       finished = true;
       observer.disconnect();
+      window.clearInterval(interval);
       window.clearTimeout(timeout);
       resolve(success);
     }
     function check(): void {
       if (inspect().available) finish(true);
+    }
+    observer.observe(document.documentElement, { subtree: true, childList: true, attributes: true });
+    check();
+  });
+}
+
+/** This function is serialized into the Structured page; keep it self-contained. */
+function waitForInboxStateKnown(inspect: () => InboxDomState, timeoutMs: number): Promise<boolean> {
+  return new Promise((resolve) => {
+    let finished = false;
+    const observer = new MutationObserver(check);
+    const interval = window.setInterval(check, 250);
+    const timeout = window.setTimeout(() => finish(false), timeoutMs);
+    function finish(success: boolean): void {
+      if (finished) return;
+      finished = true;
+      observer.disconnect();
+      window.clearInterval(interval);
+      window.clearTimeout(timeout);
+      resolve(success);
+    }
+    function check(): void {
+      const state = inspect();
+      if (state.available && state.open !== null) finish(true);
     }
     observer.observe(document.documentElement, { subtree: true, childList: true, attributes: true });
     check();
@@ -104,11 +130,13 @@ function waitForInboxState(inspect: () => InboxDomState, desired: boolean, timeo
   return new Promise((resolve) => {
     let finished = false;
     const observer = new MutationObserver(check);
+    const interval = window.setInterval(check, 250);
     const timeout = window.setTimeout(() => finish(false), timeoutMs);
     function finish(success: boolean): void {
       if (finished) return;
       finished = true;
       observer.disconnect();
+      window.clearInterval(interval);
       window.clearTimeout(timeout);
       resolve(success);
     }
@@ -139,9 +167,16 @@ export class StructuredUiAdapter {
     const inspect = `(() => (${inspectInboxDom.toString()})(${readInboxOpenState.toString()}))`;
     let state = await this.contents.executeJavaScript(`${inspect}()`, true) as InboxDomState;
     if (!state.available) {
-      const appeared = await this.contents.executeJavaScript(`(${waitForInboxControl.toString()})(${inspect}, 15000)`, true) as boolean;
+      const appeared = await this.contents.executeJavaScript(`(${waitForInboxControl.toString()})(${inspect}, 30000)`, true) as boolean;
       if (!appeared) throw new StructuredUiError('Structured 页面尚未显示可识别的 Inbox 控件。请确认已登录后重试。');
       state = await this.contents.executeJavaScript(`${inspect}()`, true) as InboxDomState;
+    }
+    // The control can be rendered before Structured has attached its expanded
+    // state. Wait for hydration instead of treating that transient state as a
+    // permanent failure during desktop startup.
+    if (state.open === null) {
+      const known = await this.contents.executeJavaScript(`(${waitForInboxStateKnown.toString()})(${inspect}, 30000)`, true) as boolean;
+      if (known) state = await this.contents.executeJavaScript(`${inspect}()`, true) as InboxDomState;
     }
     const action = getInboxToggleAction(state.open, wantInbox);
     if (action === 'none') return;

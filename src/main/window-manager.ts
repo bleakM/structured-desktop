@@ -19,6 +19,7 @@ export class WindowManager {
   private structuredPageActivated = false;
   private startupNavigationPending = true;
   private startupRecoveryAttempts = 0;
+  private startupNavigationTimer?: NodeJS.Timeout;
   private startupRetryTimer?: NodeJS.Timeout;
   private currentPage: StartupPage;
   private navigationQueue: Promise<void> = Promise.resolve();
@@ -34,6 +35,7 @@ export class WindowManager {
   async create(): Promise<BrowserWindow> {
     if (this.window && !this.window.isDestroyed()) return this.window;
     this.clearStartupRetry();
+    this.clearStartupNavigationTimer();
     this.startupNavigationPending = true;
     this.startupRecoveryAttempts = 0;
     const settings = this.store.get();
@@ -68,6 +70,7 @@ export class WindowManager {
     window.on('closed', () => {
       if (this.window !== window) return;
       this.clearStartupRetry();
+      this.clearStartupNavigationTimer();
       this.disposeViews();
       this.window = undefined;
       this.ready = false;
@@ -222,7 +225,14 @@ export class WindowManager {
     this.ready = true;
     this.navigationError = undefined;
     void this.sendShellState();
-    void this.navigate(this.currentPage);
+    // Structured's document can finish loading before its client-side controls
+    // have attached event handlers. Give hydration a moment before the first
+    // Inbox click; the retry path below remains active if the page is slower.
+    this.clearStartupNavigationTimer();
+    this.startupNavigationTimer = setTimeout(() => {
+      this.startupNavigationTimer = undefined;
+      if (this.startupNavigationPending) void this.navigate(this.currentPage);
+    }, 1000);
   }
 
   private scheduleStartupRecovery(reloadPage = true): void {
@@ -255,9 +265,15 @@ export class WindowManager {
     this.startupRetryTimer = undefined;
   }
 
+  private clearStartupNavigationTimer(): void {
+    if (this.startupNavigationTimer) clearTimeout(this.startupNavigationTimer);
+    this.startupNavigationTimer = undefined;
+  }
+
   private async refreshStructuredPage(): Promise<void> {
     if (!this.webView || this.webView.webContents.isDestroyed()) return;
     this.clearStartupRetry();
+    this.clearStartupNavigationTimer();
     this.startupNavigationPending = true;
     this.startupRecoveryAttempts = 0;
     this.ready = false;
@@ -308,6 +324,7 @@ export class WindowManager {
     this.startupNavigationPending = true;
     this.startupRecoveryAttempts = 0;
     this.clearStartupRetry();
+    this.clearStartupNavigationTimer();
     this.currentPage = currentPage;
     await this.create();
   }
@@ -340,6 +357,7 @@ export class WindowManager {
 
   private disposeViews(): void {
     this.clearStartupRetry();
+    this.clearStartupNavigationTimer();
     for (const view of [this.webView, this.localView, this.settingsView]) {
       if (!view) continue;
       try { this.window?.contentView.removeChildView(view); } catch { /* window is closing */ }
