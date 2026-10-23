@@ -17,6 +17,9 @@ export class WindowManager {
   private ready = false;
   private structuredPageLoaded = false;
   private structuredPageActivated = false;
+  private startupNavigationPending = true;
+  private startupRecoveryAttempts = 0;
+  private startupRetryTimer?: NodeJS.Timeout;
   private currentPage: StartupPage;
   private navigationQueue: Promise<void> = Promise.resolve();
   private navigationError?: string;
@@ -30,6 +33,9 @@ export class WindowManager {
 
   async create(): Promise<BrowserWindow> {
     if (this.window && !this.window.isDestroyed()) return this.window;
+    this.clearStartupRetry();
+    this.startupNavigationPending = true;
+    this.startupRecoveryAttempts = 0;
     const settings = this.store.get();
     const bounds = calculateStartupBounds(settings);
     const options: BrowserWindowConstructorOptions = {
@@ -61,6 +67,7 @@ export class WindowManager {
     window.on('close', () => { void this.persistLastBounds(); });
     window.on('closed', () => {
       if (this.window !== window) return;
+      this.clearStartupRetry();
       this.disposeViews();
       this.window = undefined;
       this.ready = false;
@@ -106,6 +113,16 @@ export class WindowManager {
       this.structuredPageLoaded = false;
       this.structuredPageActivated = false;
       this.navigationError = `Structured 页面加载失败：${errorDescription}`;
+      this.scheduleStartupRecovery();
+      void this.sendShellState();
+    });
+    this.webView.webContents.on('render-process-gone', (_event, details) => {
+      if (!this.startupNavigationPending) return;
+      this.ready = false;
+      this.structuredPageLoaded = false;
+      this.structuredPageActivated = false;
+      this.navigationError = `Structured 页面进程已退出：${details.reason}`;
+      this.scheduleStartupRecovery();
       void this.sendShellState();
     });
     this.webView.webContents.setWindowOpenHandler(({ url }) => {
@@ -118,6 +135,7 @@ export class WindowManager {
     void this.webView.webContents.loadURL(STRUCTURED_URL).catch((error: unknown) => {
       this.ready = false;
       this.navigationError = `Structured 页面加载失败：${error instanceof Error ? error.message : String(error)}`;
+      this.scheduleStartupRecovery();
       void this.sendShellState();
     });
   }
@@ -135,7 +153,7 @@ export class WindowManager {
   async handleLocalMessage(channel: string, args: unknown[]): Promise<void> {
     if (channel === 'shell-navigate') await this.navigate(args[0] as StartupPage);
     if (channel === 'shell-settings') await this.openSettings();
-    if (channel === 'shell-refresh') await this.webView?.webContents.reload();
+    if (channel === 'shell-refresh') await this.refreshStructuredPage();
     if (channel === 'shell-quit') await this.quit();
     if (channel === 'settings-save') await this.saveSettings(args[0] as AppSettingsPatch);
     if (channel === 'settings-close') await this.closeSettings();
@@ -166,8 +184,12 @@ export class WindowManager {
       try {
         await new StructuredUiAdapter(this.webView.webContents).navigate(target);
         this.navigationError = undefined;
+        this.startupNavigationPending = false;
+        this.startupRecoveryAttempts = 0;
+        this.clearStartupRetry();
       } catch (error) {
         this.navigationError = error instanceof Error ? error.message : String(error);
+        if (this.startupNavigationPending && target === this.currentPage) this.scheduleStartupRecovery(false);
       } finally {
         await this.sendShellState();
       }
@@ -203,6 +225,55 @@ export class WindowManager {
     void this.navigate(this.currentPage);
   }
 
+  private scheduleStartupRecovery(reloadPage = true): void {
+    if (!this.startupNavigationPending || !this.webView || this.webView.webContents.isDestroyed() || this.startupRetryTimer) return;
+    const delayMs = Math.min(1000 * (2 ** Math.min(this.startupRecoveryAttempts, 5)), 30000);
+    this.startupRecoveryAttempts += 1;
+    const retryMessage = reloadPage ? 'Structured 页面暂时无法加载' : 'Structured 启动状态尚未确认';
+    this.navigationError = `${retryMessage}，将在 ${Math.ceil(delayMs / 1000)} 秒后自动重试…`;
+    this.startupRetryTimer = setTimeout(() => {
+      this.startupRetryTimer = undefined;
+      if (!this.startupNavigationPending || !this.webView || this.webView.webContents.isDestroyed()) return;
+      if (!reloadPage) {
+        void this.navigate(this.currentPage);
+        return;
+      }
+      this.ready = false;
+      this.structuredPageLoaded = false;
+      this.structuredPageActivated = false;
+      void this.webView.webContents.loadURL(STRUCTURED_URL).catch((error: unknown) => {
+        this.navigationError = `Structured 页面加载失败：${error instanceof Error ? error.message : String(error)}`;
+        this.scheduleStartupRecovery();
+        void this.sendShellState();
+      });
+    }, delayMs);
+    void this.sendShellState();
+  }
+
+  private clearStartupRetry(): void {
+    if (this.startupRetryTimer) clearTimeout(this.startupRetryTimer);
+    this.startupRetryTimer = undefined;
+  }
+
+  private async refreshStructuredPage(): Promise<void> {
+    if (!this.webView || this.webView.webContents.isDestroyed()) return;
+    this.clearStartupRetry();
+    this.startupNavigationPending = true;
+    this.startupRecoveryAttempts = 0;
+    this.ready = false;
+    this.structuredPageLoaded = false;
+    this.structuredPageActivated = false;
+    this.navigationError = undefined;
+    await this.sendShellState();
+    try {
+      await this.webView.webContents.loadURL(STRUCTURED_URL);
+    } catch (error) {
+      this.navigationError = `Structured 页面加载失败：${error instanceof Error ? error.message : String(error)}`;
+      this.scheduleStartupRecovery();
+      await this.sendShellState();
+    }
+  }
+
   private persistLastBounds(): void {
     if (!this.window || this.window.isMinimized() || this.window.isMaximized()) return;
     const bounds = this.window.getBounds();
@@ -234,6 +305,9 @@ export class WindowManager {
     this.ready = false;
     this.structuredPageLoaded = false;
     this.structuredPageActivated = false;
+    this.startupNavigationPending = true;
+    this.startupRecoveryAttempts = 0;
+    this.clearStartupRetry();
     this.currentPage = currentPage;
     await this.create();
   }
@@ -265,6 +339,7 @@ export class WindowManager {
   }
 
   private disposeViews(): void {
+    this.clearStartupRetry();
     for (const view of [this.webView, this.localView, this.settingsView]) {
       if (!view) continue;
       try { this.window?.contentView.removeChildView(view); } catch { /* window is closing */ }
