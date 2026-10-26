@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { getInboxToggleAction, readInboxOpenState } from '../src/main/structured/ui-adapter';
+import { getInboxToggleAction, readInboxOpenState, resolveInboxOpenState } from '../src/main/structured/ui-adapter';
 
 test('Inbox navigation only toggles when the observed state differs from the target', () => {
   assert.equal(getInboxToggleAction(false, true), 'toggle');
@@ -18,4 +18,22 @@ test('Inbox state can be read from accessible attributes on a control or its des
   assert.equal(readInboxOpenState(['closed']), false);
   assert.equal(readInboxOpenState([null, 'open']), true);
   assert.equal(readInboxOpenState([null, null]), null);
+});
+
+test('visible Inbox panels override a stale collapsed state on the toggle control', () => {
+  assert.equal(resolveInboxOpenState(false, {
+    routeIsInbox: false,
+    controlledPanelVisible: false,
+    inboxPanelVisible: true,
+    label: 'Inbox'
+  }), true);
+});
+
+test('the Timeline route alone does not imply that the Inbox panel is closed', () => {
+  assert.equal(resolveInboxOpenState(null, {
+    routeIsInbox: false,
+    controlledPanelVisible: false,
+    inboxPanelVisible: false,
+    label: 'Inbox'
+  }), null);
 });

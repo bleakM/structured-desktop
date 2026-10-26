@@ -26,8 +26,7 @@ export function getDisplayForSettings(settings: AppSettings): Display {
   return displays.find((display) => String(display.id) === settings.window.displayId) ?? screen.getPrimaryDisplay();
 }
 
-export function calculateStartupBounds(settings: AppSettings): Rectangle {
-  const display = getDisplayForSettings(settings);
+export function calculateStartupBoundsOnDisplay(settings: AppSettings, display: Pick<Display, 'workArea'>): Rectangle {
   const area = display.workArea;
   const width = Math.round(settings.window.width);
   const height = Math.round(settings.window.height);
@@ -43,4 +42,18 @@ export function calculateStartupBounds(settings: AppSettings): Rectangle {
   const savedWidth = mode === 'last' && validNumber(settings.window.lastWidth) ? settings.window.lastWidth : width;
   const savedHeight = mode === 'last' && validNumber(settings.window.lastHeight) ? settings.window.lastHeight : height;
   return clampBounds({ x, y, width: savedWidth, height: savedHeight }, area);
+}
+
+export function calculateStartupBounds(settings: AppSettings): Rectangle {
+  const { positionMode, lastX, lastY, lastWidth, lastHeight, width, height } = settings.window;
+  const hasLastPosition = positionMode === 'last' && validNumber(lastX) && validNumber(lastY);
+  const display = hasLastPosition
+    ? screen.getDisplayMatching({
+      x: lastX,
+      y: lastY,
+      width: validNumber(lastWidth) ? lastWidth : width,
+      height: validNumber(lastHeight) ? lastHeight : height
+    })
+    : getDisplayForSettings(settings);
+  return calculateStartupBoundsOnDisplay(settings, display);
 }

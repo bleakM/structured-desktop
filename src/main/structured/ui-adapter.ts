@@ -19,13 +19,27 @@ export function readInboxOpenState(values: readonly (string | null)[]): boolean 
   return null;
 }
 
+export function resolveInboxOpenState(
+  controlState: boolean | null,
+  signals: { routeIsInbox: boolean; controlledPanelVisible: boolean; inboxPanelVisible: boolean; label: string }
+): boolean | null {
+  if (signals.routeIsInbox || signals.controlledPanelVisible || signals.inboxPanelVisible) return true;
+  if (controlState !== null) return controlState;
+  if (/(close|hide|collapse|关闭|收起)/i.test(signals.label)) return true;
+  if (/(open|show|expand|打开|展开)/i.test(signals.label)) return false;
+  return null;
+}
+
 interface InboxDomState {
   available: boolean;
   open: boolean | null;
 }
 
 /** This function is serialized into the Structured page; keep it self-contained. */
-function inspectInboxDom(readInboxOpenState: (values: readonly (string | null)[]) => boolean | null): InboxDomState {
+function inspectInboxDom(
+  readInboxOpenState: (values: readonly (string | null)[]) => boolean | null,
+  resolveInboxOpenState: (controlState: boolean | null, signals: { routeIsInbox: boolean; controlledPanelVisible: boolean; inboxPanelVisible: boolean; label: string }) => boolean | null
+): InboxDomState {
   const isVisible = (element: Element | null): boolean => {
     if (!(element instanceof HTMLElement) || element.closest('[aria-hidden="true"], [hidden]')) return false;
     const style = window.getComputedStyle(element);
@@ -43,24 +57,26 @@ function inspectInboxDom(readInboxOpenState: (values: readonly (string | null)[]
   for (let parent = control.parentElement; parent && stateElements.length < 10; parent = parent.parentElement) {
     if (parent.matches('[aria-expanded],[aria-pressed],[aria-selected],[data-state]')) stateElements.push(parent);
   }
+  let controlState: boolean | null = null;
   for (const element of stateElements) {
-    const state = readInboxOpenState(['aria-expanded', 'aria-pressed', 'aria-selected', 'data-state'].map((attribute) => element.getAttribute(attribute)));
-    if (state !== null) return { available: true, open: state };
+    controlState = readInboxOpenState(['aria-expanded', 'aria-pressed', 'aria-selected', 'data-state'].map((attribute) => element.getAttribute(attribute)));
+    if (controlState !== null) break;
   }
-  // Structured currently keeps the timeline route while Inbox is a panel, but
-  // a future version may expose a dedicated route. Prefer that page-level
-  // signal over guessing from text that can also appear in navigation labels.
-  if (/\/inbox(?:\/|$)/i.test(location.pathname)) return { available: true, open: true };
-  if (/\/timeline(?:\/|$)/i.test(location.pathname)) return { available: true, open: false };
   const label = (control.getAttribute('aria-label') || control.getAttribute('title') || control.textContent || '').trim().toLowerCase();
-  if (/(close|hide|collapse|关闭|收起)/.test(label)) return { available: true, open: true };
-  if (/(open|show|expand|打开|展开)/.test(label)) return { available: true, open: false };
-
   const controlledIds = (control.getAttribute('aria-controls') || '').split(/\s+/).filter(Boolean);
-  if (controlledIds.some((id) => isVisible(document.getElementById(id)))) return { available: true, open: true };
+  const controlledPanelVisible = controlledIds.some((id) => isVisible(document.getElementById(id)));
   const panel = [...document.querySelectorAll('[role="dialog"],[role="complementary"],aside,[data-testid]')]
     .find((element) => element !== control && isVisible(element) && /inbox|收件箱/i.test(`${element.getAttribute('aria-label') || ''} ${element.getAttribute('data-testid') || ''}`));
-  return { available: true, open: panel ? true : null };
+  const open = resolveInboxOpenState(
+    controlState,
+    {
+      routeIsInbox: /\/inbox(?:\/|$)/i.test(location.pathname),
+      controlledPanelVisible,
+      inboxPanelVisible: Boolean(panel),
+      label
+    }
+  );
+  return { available: true, open };
 }
 
 /** This function is serialized into the Structured page; keep it self-contained. */
@@ -158,13 +174,13 @@ export class StructuredUiAdapter {
   constructor(private readonly contents: WebContents) {}
 
   async getInboxOpen(): Promise<boolean | null> {
-    const state = await this.contents.executeJavaScript(`(${inspectInboxDom.toString()})(${readInboxOpenState.toString()})`, true) as InboxDomState;
+    const state = await this.contents.executeJavaScript(`(${inspectInboxDom.toString()})(${readInboxOpenState.toString()}, ${resolveInboxOpenState.toString()})`, true) as InboxDomState;
     return state.open;
   }
 
   async navigate(page: StartupPage): Promise<void> {
     const wantInbox = page === 'inbox';
-    const inspect = `(() => (${inspectInboxDom.toString()})(${readInboxOpenState.toString()}))`;
+    const inspect = `(() => (${inspectInboxDom.toString()})(${readInboxOpenState.toString()}, ${resolveInboxOpenState.toString()}))`;
     let state = await this.contents.executeJavaScript(`${inspect}()`, true) as InboxDomState;
     if (!state.available) {
       const appeared = await this.contents.executeJavaScript(`(${waitForInboxControl.toString()})(${inspect}, 30000)`, true) as boolean;

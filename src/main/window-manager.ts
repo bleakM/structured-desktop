@@ -79,6 +79,13 @@ export class WindowManager {
     await this.attachLocalView();
     this.layout();
     window.show();
+    if (process.platform === 'linux' && detectWindowEnvironment().precisePositioning) {
+      const [x, y] = [bounds.x, bounds.y];
+      const positionTimer = setTimeout(() => {
+        if (!window.isDestroyed() && window.isVisible() && !window.isMaximized()) window.setPosition(x, y);
+      }, 150);
+      positionTimer.unref();
+    }
     // Mutter may ignore the constructor hint until the X11 window is mapped.
     // Apply it again after showing so Widget mode can leave the taskbar on
     // GNOME/X11 while keeping the window interactive.
