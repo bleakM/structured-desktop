@@ -1,6 +1,6 @@
 import { BrowserWindow, BrowserWindowConstructorOptions, Rectangle, screen, session, WebContentsView } from 'electron';
 import { AppSettingsPatch, SettingsStore } from './settings';
-import { calculateCollapsedWidgetBounds, calculateExpandedWidgetBounds, calculateStartupBounds, calculateWidgetShape, clampBounds, listDisplays, WIDGET_ORB_SIZE } from './window-state';
+import { calculateCollapsedWidgetBounds, calculateExpandedWidgetBounds, calculateStartupBounds, calculateVisibleWidgetBounds, calculateWidgetShape, clampBounds, listDisplays, WIDGET_ORB_SIZE } from './window-state';
 import { AppSettings, StartupPage, WidgetEdge } from './types';
 import { StructuredUiAdapter } from './structured/ui-adapter';
 import { setAutoStart } from './platform/autostart';
@@ -22,6 +22,9 @@ export class WindowManager {
   private startupNavigationTimer?: NodeJS.Timeout;
   private startupRetryTimer?: NodeJS.Timeout;
   private widgetHoverTimer?: NodeJS.Timeout;
+  private widgetPositionTimer?: NodeJS.Timeout;
+  private widgetPositionAnimation = 0;
+  private widgetPositionAnimationResolve?: () => void;
   private boundsWriteTimer?: NodeJS.Timeout;
   private widgetExpanded = false;
   private widgetHovered = false;
@@ -108,7 +111,7 @@ export class WindowManager {
     await this.attachStructuredView();
     await this.attachLocalView();
     this.layout();
-    if (settings.window.mode === 'widget') this.setWidgetWindowShape(false);
+    if (settings.window.mode === 'widget') this.setCollapsedWidgetShape();
     window.show();
     if (process.platform === 'linux' && detectWindowEnvironment().precisePositioning) {
       const [x, y] = [bounds.x, bounds.y];
@@ -287,9 +290,9 @@ export class WindowManager {
     this.activateStructuredPage();
   }
 
-  private setWidgetWindowShape(fullyVisible: boolean): void {
+  private setCollapsedWidgetShape(): void {
     if (!this.window || (process.platform !== 'linux' && process.platform !== 'win32')) return;
-    this.window.setShape(calculateWidgetShape(this.widgetEdge, fullyVisible, this.getWidgetDisplay().scaleFactor));
+    this.window.setShape(calculateWidgetShape(this.getWidgetDisplay().scaleFactor));
   }
 
   async showMainWindow(): Promise<void> {
@@ -319,16 +322,14 @@ export class WindowManager {
     this.clearWidgetHoverTimer();
     if (hovered) {
       this.widgetHovered = true;
-      this.setWidgetWindowShape(true);
-      void this.sendShellState();
+      void this.revealWidget();
       return;
     }
     this.widgetHoverTimer = setTimeout(() => {
       this.widgetHoverTimer = undefined;
       if (!this.window || this.window.isDestroyed() || this.widgetExpanded || this.widgetDragStart) return;
       this.widgetHovered = false;
-      this.setWidgetWindowShape(false);
-      void this.sendShellState();
+      void this.tuckWidget();
     }, 450);
     this.widgetHoverTimer.unref();
   }
@@ -336,6 +337,59 @@ export class WindowManager {
   private clearWidgetHoverTimer(): void {
     if (this.widgetHoverTimer) clearTimeout(this.widgetHoverTimer);
     this.widgetHoverTimer = undefined;
+  }
+
+  private async revealWidget(): Promise<void> {
+    if (!this.window || this.window.isDestroyed() || this.widgetExpanded) return;
+    const bounds = calculateVisibleWidgetBounds(this.getWidgetDisplay().workArea, this.widgetEdge, this.widgetOrbY);
+    await this.animateWidgetBounds(bounds);
+  }
+
+  private async tuckWidget(): Promise<void> {
+    if (!this.window || this.window.isDestroyed() || this.widgetExpanded) return;
+    const bounds = calculateCollapsedWidgetBounds(this.getWidgetDisplay().workArea, this.widgetEdge, this.widgetOrbY);
+    await this.animateWidgetBounds(bounds);
+  }
+
+  private animateWidgetBounds(target: Rectangle, duration = 220): Promise<void> {
+    if (!this.window || this.window.isDestroyed()) return Promise.resolve();
+    if (this.widgetPositionTimer) clearTimeout(this.widgetPositionTimer);
+    this.widgetPositionTimer = undefined;
+    this.widgetPositionAnimationResolve?.();
+    this.widgetPositionAnimationResolve = undefined;
+    const animationId = ++this.widgetPositionAnimation;
+    const start = this.window.getBounds();
+    if (start.x === target.x && start.y === target.y && start.width === target.width && start.height === target.height) return Promise.resolve();
+    const startedAt = Date.now();
+    return new Promise((resolve) => {
+      const frame = () => {
+        if (!this.window || this.window.isDestroyed() || animationId !== this.widgetPositionAnimation) {
+          if (animationId === this.widgetPositionAnimation) {
+            this.widgetPositionTimer = undefined;
+            this.widgetPositionAnimationResolve = undefined;
+          }
+          resolve();
+          return;
+        }
+        const progress = Math.min(1, (Date.now() - startedAt) / duration);
+        const eased = 1 - (1 - progress) ** 3;
+        this.window.setBounds({
+          x: Math.round(start.x + (target.x - start.x) * eased),
+          y: Math.round(start.y + (target.y - start.y) * eased),
+          width: Math.round(start.width + (target.width - start.width) * eased),
+          height: Math.round(start.height + (target.height - start.height) * eased)
+        });
+        if (progress >= 1) {
+          this.widgetPositionTimer = undefined;
+          this.widgetPositionAnimationResolve = undefined;
+          resolve();
+          return;
+        }
+        this.widgetPositionTimer = setTimeout(frame, 16);
+      };
+      this.widgetPositionAnimationResolve = resolve;
+      frame();
+    });
   }
 
   private async expandWidget(): Promise<void> {
@@ -370,14 +424,13 @@ export class WindowManager {
     this.widgetOrbY = bounds.y + Math.round((bounds.height - WIDGET_ORB_SIZE) / 2);
     const collapsedBounds = calculateCollapsedWidgetBounds(display.workArea, this.widgetEdge, this.widgetOrbY);
     this.widgetOrbY = collapsedBounds.y;
-    this.window.setBounds(collapsedBounds);
+    const visibleBounds = calculateVisibleWidgetBounds(display.workArea, this.widgetEdge, this.widgetOrbY);
+    this.window.setBounds(visibleBounds);
+    this.setCollapsedWidgetShape();
     this.layout();
+    await this.animateWidgetBounds(collapsedBounds);
     await this.store.update({ window: { widgetEdge: this.widgetEdge, widgetY: this.widgetOrbY, displayId: this.widgetDisplayId } });
     await this.sendShellState();
-    const shapeTimer = setTimeout(() => {
-      if (!this.widgetExpanded && !this.widgetHovered) this.setWidgetWindowShape(false);
-    }, 260);
-    shapeTimer.unref();
   }
 
   private startWidgetDrag(): void {
@@ -406,7 +459,8 @@ export class WindowManager {
     const snapped = calculateCollapsedWidgetBounds(display.workArea, this.widgetEdge, bounds.y);
     this.widgetOrbY = snapped.y;
     this.widgetDisplayId = String(display.id);
-    this.window.setBounds(snapped);
+    this.setCollapsedWidgetShape();
+    await this.animateWidgetBounds(snapped);
     await this.store.update({ window: { widgetEdge: this.widgetEdge, widgetY: this.widgetOrbY, displayId: this.widgetDisplayId } });
     await this.sendShellState();
   }

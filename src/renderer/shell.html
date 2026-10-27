@@ -24,10 +24,8 @@
     #orb { display: none; width: 56px; height: 56px; align-items: center; justify-content: center; border: 0; border-radius: 50%; background: #635bff; box-shadow: none; cursor: grab; touch-action: none; user-select: none; }
     #orb img { width: 38px; height: 38px; border-radius: 50%; pointer-events: none; }
     body.widget-orb #bar { display: none; }
-    body.widget-orb #orb { display: flex; opacity: .86; filter: brightness(.94); transition: transform 220ms cubic-bezier(.2,.75,.25,1), opacity 180ms ease, filter 180ms ease; }
-    body.widget-orb.widget-left #orb { transform: translateX(-28px); }
-    body.widget-orb.widget-right #orb { transform: translateX(28px); }
-    body.widget-orb.widget-hovered #orb { transform: translateX(0); opacity: 1; filter: none; }
+    body.widget-orb #orb { display: flex; opacity: .86; filter: brightness(.94); transition: opacity 180ms ease, filter 180ms ease; }
+    body.widget-orb.widget-hovered #orb { opacity: 1; filter: none; }
     body.widget-orb { display: grid; place-items: center; }
   </style>
 </head>
@@ -72,8 +70,6 @@
     api?.onState((state) => {
       document.body.classList.toggle('widget', state.mode === 'widget');
       document.body.classList.toggle('widget-orb', state.mode === 'widget' && !state.widgetExpanded);
-      document.body.classList.toggle('widget-left', state.widgetEdge === 'left');
-      document.body.classList.toggle('widget-right', state.widgetEdge === 'right');
       document.querySelector('#timeline').classList.toggle('active', state.page === 'timeline');
       document.querySelector('#inbox').classList.toggle('active', state.page === 'inbox');
       document.querySelector('#status').textContent = state.error || (state.loading ? '正在加载 Structured…' : state.mode === 'widget' ? 'Widget' : '');

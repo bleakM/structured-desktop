@@ -27,18 +27,25 @@ export function clampBounds(bounds: Rectangle, workArea: Rectangle): Rectangle {
 export function calculateCollapsedWidgetBounds(workArea: Rectangle, edge: 'left' | 'right', y: number): Rectangle {
   const size = Math.min(WIDGET_ORB_SIZE, workArea.width, workArea.height);
   const x = edge === 'left'
-    ? workArea.x
-    : workArea.x + workArea.width - size;
+    ? workArea.x - size / 2
+    : workArea.x + workArea.width - size / 2;
   const top = Math.max(workArea.y, Math.min(y, workArea.y + workArea.height - size));
   return { x: Math.round(x), y: Math.round(top), width: size, height: size };
 }
 
-export function calculateWidgetShape(edge: 'left' | 'right', fullyVisible = false, scaleFactor = 1): Rectangle[] {
+export function calculateVisibleWidgetBounds(workArea: Rectangle, edge: 'left' | 'right', y: number): Rectangle {
+  const size = Math.min(WIDGET_ORB_SIZE, workArea.width, workArea.height);
+  const x = edge === 'left' ? workArea.x : workArea.x + workArea.width - size;
+  const top = Math.max(workArea.y, Math.min(y, workArea.y + workArea.height - size));
+  return { x: Math.round(x), y: Math.round(top), width: size, height: size };
+}
+
+export function calculateWidgetShape(scaleFactor = 1): Rectangle[] {
   const size = WIDGET_ORB_SIZE;
   const step = 1 / Math.max(1, scaleFactor);
   const circleCenterY = size / 2;
   const circleRadius = size / 2;
-  const circleCenterX = fullyVisible ? size / 2 : edge === 'left' ? 0 : size;
+  const circleCenterX = size / 2;
   const rects: Rectangle[] = [];
 
   for (let y = 0; y < size; y += step) {
