@@ -24,7 +24,8 @@ npm run build:win      # Windows x64 NSIS 配置（建议 Windows CI 构建）
 ## 窗口与平台行为
 
 - 普通模式使用系统标题栏、任务栏入口和可调整大小的窗口。
-- Widget 模式使用 `frame: false`、本地拖动区域和 Windows `skipTaskbar`。Linux 任务栏隐藏是否生效由 GNOME/X11 窗口管理器决定。
+- Widget 模式以 56 DIP 圆球停靠在屏幕左右边缘；收起时圆球向边缘滑出一半并略微变暗，鼠标悬停时滑回完整显示，拖动后吸附到最近边缘。点击圆球打开圆角任务窗口，点击窗口外部收回圆球；Structured 页面在后台保持渲染，展开时不重新加载。
+- Widget 模式使用无边框窗口和 `skipTaskbar`。Linux 任务栏隐藏是否生效由 GNOME/X11 窗口管理器决定。
 - 在原生 Wayland 中，应用不会虚报精确窗口定位能力；如需 XWayland 定位，可手动以 `--ozone-platform=x11` 启动。应用不会修改系统会话配置。
 - 位置和尺寸采用 DIP，按显示器工作区夹紧，显示器断开后回退到当前主显示器。
 - 设置面板始终提供“退出应用”，并配有 Tray 菜单作为恢复入口（GNOME 是否显示托盘由 Shell/扩展决定）。

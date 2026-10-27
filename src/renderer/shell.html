@@ -6,9 +6,10 @@
   <style>
     :root { color-scheme: light; font-family: Inter, ui-sans-serif, system-ui, sans-serif; }
     * { box-sizing: border-box; }
-    body { margin: 0; color: #343345; background: rgba(247,247,251,.96); }
+    html, body { width: 100%; height: 100%; }
+    body { margin: 0; color: #343345; background: transparent; overflow: hidden; }
     .bar { height: 54px; display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-bottom: 1px solid #e3e2eb; }
-    .widget .bar { height: 42px; background: rgba(255,255,255,.92); border-radius: 0 0 10px 10px; padding: 5px 8px; }
+    .widget .bar { height: 42px; background: #fff; border-radius: 14px 14px 0 0; padding: 5px 8px; }
     .drag { flex: 1; height: 100%; display: flex; align-items: center; gap: 8px; app-region: drag; -webkit-app-region: drag; user-select: none; }
     .widget .drag { cursor: move; }
     button { border: 0; background: transparent; border-radius: 8px; padding: 7px 10px; color: inherit; font: inherit; cursor: pointer; }
@@ -18,7 +19,16 @@
     .actions { display: flex; gap: 2px; app-region: no-drag; -webkit-app-region: no-drag; }
     .widget .brand { display: none; }
     .widget .nav { display: none; }
+    .widget #quit { display: none; }
     .hint { color: #77748a; font-size: 12px; }
+    #orb { display: none; width: 56px; height: 56px; align-items: center; justify-content: center; border: 0; border-radius: 50%; background: #635bff; box-shadow: none; cursor: grab; touch-action: none; user-select: none; }
+    #orb img { width: 38px; height: 38px; border-radius: 50%; pointer-events: none; }
+    body.widget-orb #bar { display: none; }
+    body.widget-orb #orb { display: flex; opacity: .86; filter: brightness(.94); transition: transform 220ms cubic-bezier(.2,.75,.25,1), opacity 180ms ease, filter 180ms ease; }
+    body.widget-orb.widget-left #orb { transform: translateX(-28px); }
+    body.widget-orb.widget-right #orb { transform: translateX(28px); }
+    body.widget-orb.widget-hovered #orb { transform: translateX(0); opacity: 1; filter: none; }
+    body.widget-orb { display: grid; place-items: center; }
   </style>
 </head>
 <body>
@@ -27,6 +37,7 @@
     <nav class="nav actions" aria-label="页面"><button id="timeline">Timeline</button><button id="inbox">Inbox</button></nav>
     <div class="actions" aria-label="应用控制"><button id="refresh" title="刷新">↻</button><button id="settings" title="设置">⚙</button><button id="quit" title="退出应用">×</button></div>
   </header>
+  <div id="orb" role="button" tabindex="0" aria-label="展开 Structured Desktop"><img src="../icon.png" alt=""></div>
   <script>
     const api = window.structuredShell;
     const send = (channel, value) => api?.send(channel, value);
@@ -35,8 +46,34 @@
     document.querySelector('#refresh').onclick = () => send('shell-refresh');
     document.querySelector('#settings').onclick = () => send('shell-settings');
     document.querySelector('#quit').onclick = () => send('shell-quit');
+    const orb = document.querySelector('#orb');
+    let pointerId = null; let pointerStart = null; let dragged = false;
+    orb.addEventListener('pointerenter', () => { document.body.classList.add('widget-hovered'); send('widget-hover', true); });
+    orb.addEventListener('pointerleave', () => { document.body.classList.remove('widget-hovered'); if (pointerId === null) send('widget-hover', false); });
+    orb.addEventListener('pointerdown', (event) => {
+      if (event.button !== 0) return;
+      event.preventDefault(); pointerId = event.pointerId; pointerStart = { x: event.screenX, y: event.screenY }; dragged = false;
+      orb.setPointerCapture(event.pointerId); send('widget-drag-start');
+    });
+    orb.addEventListener('pointermove', (event) => {
+      if (pointerId !== event.pointerId) return;
+      if (Math.hypot(event.screenX - pointerStart.x, event.screenY - pointerStart.y) > 5) dragged = true;
+      if (dragged) send('widget-drag-move');
+    });
+    const endOrbDrag = (event, open) => {
+      if (pointerId !== event.pointerId) return;
+      pointerId = null; pointerStart = null; send('widget-drag-end');
+      if (open && !dragged) send('widget-expand');
+      dragged = false;
+    };
+    orb.addEventListener('pointerup', (event) => endOrbDrag(event, true));
+    orb.addEventListener('pointercancel', (event) => endOrbDrag(event, false));
+    orb.addEventListener('keydown', (event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); send('widget-expand'); } });
     api?.onState((state) => {
       document.body.classList.toggle('widget', state.mode === 'widget');
+      document.body.classList.toggle('widget-orb', state.mode === 'widget' && !state.widgetExpanded);
+      document.body.classList.toggle('widget-left', state.widgetEdge === 'left');
+      document.body.classList.toggle('widget-right', state.widgetEdge === 'right');
       document.querySelector('#timeline').classList.toggle('active', state.page === 'timeline');
       document.querySelector('#inbox').classList.toggle('active', state.page === 'inbox');
       document.querySelector('#status').textContent = state.error || (state.loading ? '正在加载 Structured…' : state.mode === 'widget' ? 'Widget' : '');

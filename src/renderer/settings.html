@@ -26,7 +26,8 @@
     <h2>启动位置</h2>
     <label>目标显示器<select id="display"></select></label>
     <label>位置预设<select id="position"><option value="center">屏幕中央</option><option value="top-left">左上角</option><option value="top-right">右上角</option><option value="bottom-left">左下角</option><option value="bottom-right">右下角</option><option value="last">上次关闭时的位置</option><option value="custom">自定义坐标</option></select></label>
-    <div class="grid"><label>X 坐标<input id="x" type="number" step="1"></label><label>Y 坐标<input id="y" type="number" step="1"></label></div>
+    <div class="grid"><label>X 坐标（DIP）<input id="x" type="number" step="1"></label><label>Y 坐标（DIP）<input id="y" type="number" step="1"></label></div>
+    <p class="note">上次位置模式只恢复坐标，窗口尺寸由上方宽高控制。选择自定义坐标后，X、Y 才会生效。</p>
     <p class="note" id="environment">窗口定位能力检测中…</p>
     <div class="buttons"><button class="primary" id="save">保存</button><button id="reset">重置窗口位置与大小</button><button id="close">关闭</button><button class="danger" id="quit">退出应用</button></div>
   </div>
@@ -41,9 +42,12 @@
       $('display').innerHTML = (next.displays || []).map((d) => `<option value="${d.id}">${d.label} · ${d.workArea.width}×${d.workArea.height} · ${d.scaleFactor}x</option>`).join('');
       $('display').value = s.window.displayId || (next.displays?.[0]?.id || '');
       $('environment').textContent = next.environment?.explanation || 'Widget 模式使用无标题栏与 Electron skipTaskbar；Linux 的任务栏行为取决于窗口管理器。Wayland 可能不允许精确定位。';
+      const customPosition = $('position').value === 'custom';
+      $('x').disabled = !customPosition; $('y').disabled = !customPosition;
     }
     function collect() { return { autoStart: $('autoStart').checked, startupPage: $('page').value, window: { mode: $('mode').value, width: Number($('width').value), height: Number($('height').value), displayId: $('display').value, positionMode: $('position').value, x: Number($('x').value), y: Number($('y').value) } }; }
     $('save').onclick = () => { const p = collect(); if (!Number.isFinite(p.window.width) || !Number.isFinite(p.window.height) || p.window.width < 320 || p.window.height < 240) return alert('请输入有效的窗口尺寸。'); api.send('settings-save', p); };
+    $('position').onchange = () => { const customPosition = $('position').value === 'custom'; $('x').disabled = !customPosition; $('y').disabled = !customPosition; };
     $('close').onclick = () => api.send('settings-close'); $('quit').onclick = () => api.send('shell-quit'); $('reset').onclick = () => api.send('settings-reset-window');
     $('useCurrent').onclick = () => api.send('settings-use-current-size');
     api?.onCurrentSize?.(({ width, height }) => { $('width').value = width; $('height').value = height; });

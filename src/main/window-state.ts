@@ -1,6 +1,9 @@
 import { Display, Rectangle, screen } from 'electron';
 import { AppSettings, DisplayInfo, PositionMode } from './types';
 
+export const WIDGET_ORB_SIZE = 56;
+export const WIDGET_ORB_VISIBLE = WIDGET_ORB_SIZE / 2;
+
 export function listDisplays(): DisplayInfo[] {
   return screen.getAllDisplays().map((display) => ({
     id: String(display.id),
@@ -21,6 +24,46 @@ export function clampBounds(bounds: Rectangle, workArea: Rectangle): Rectangle {
   return { x: Math.round(x), y: Math.round(y), width: Math.round(width), height: Math.round(height) };
 }
 
+export function calculateCollapsedWidgetBounds(workArea: Rectangle, edge: 'left' | 'right', y: number): Rectangle {
+  const size = Math.min(WIDGET_ORB_SIZE, workArea.width, workArea.height);
+  const x = edge === 'left'
+    ? workArea.x
+    : workArea.x + workArea.width - size;
+  const top = Math.max(workArea.y, Math.min(y, workArea.y + workArea.height - size));
+  return { x: Math.round(x), y: Math.round(top), width: size, height: size };
+}
+
+export function calculateWidgetShape(edge: 'left' | 'right', fullyVisible = false, scaleFactor = 1): Rectangle[] {
+  const size = WIDGET_ORB_SIZE;
+  const step = 1 / Math.max(1, scaleFactor);
+  const circleCenterY = size / 2;
+  const circleRadius = size / 2;
+  const circleCenterX = fullyVisible ? size / 2 : edge === 'left' ? 0 : size;
+  const rects: Rectangle[] = [];
+
+  for (let y = 0; y < size; y += step) {
+    const dy = y + step / 2 - circleCenterY;
+    const halfWidth = Math.sqrt(Math.max(0, circleRadius ** 2 - dy ** 2));
+    const left = Math.max(0, Math.ceil((circleCenterX - halfWidth) / step - 0.5) * step);
+    const right = Math.min(size, Math.ceil((circleCenterX + halfWidth) / step - 0.5) * step);
+    if (right <= left) continue;
+
+    const previous = rects[rects.length - 1];
+    if (previous && previous.x === left && previous.width === right - left && previous.y + previous.height === y) {
+      previous.height += step;
+    } else {
+      rects.push({ x: left, y, width: right - left, height: step });
+    }
+  }
+  return rects;
+}
+
+export function calculateExpandedWidgetBounds(workArea: Rectangle, edge: 'left' | 'right', orbY: number, width: number, height: number): Rectangle {
+  const x = edge === 'left' ? workArea.x : workArea.x + workArea.width - width;
+  const y = orbY + Math.round((WIDGET_ORB_SIZE - height) / 2);
+  return clampBounds({ x, y, width, height }, workArea);
+}
+
 export function getDisplayForSettings(settings: AppSettings): Display {
   const displays = screen.getAllDisplays();
   return displays.find((display) => String(display.id) === settings.window.displayId) ?? screen.getPrimaryDisplay();
@@ -39,20 +82,18 @@ export function calculateStartupBoundsOnDisplay(settings: AppSettings, display: 
   if (mode === 'bottom-right') { x = area.x + area.width - width; y = area.y + area.height - height; }
   if (mode === 'custom' && validNumber(settings.window.x) && validNumber(settings.window.y)) { x = settings.window.x; y = settings.window.y; }
   if (mode === 'last' && validNumber(settings.window.lastX) && validNumber(settings.window.lastY)) { x = settings.window.lastX; y = settings.window.lastY; }
-  const savedWidth = mode === 'last' && validNumber(settings.window.lastWidth) ? settings.window.lastWidth : width;
-  const savedHeight = mode === 'last' && validNumber(settings.window.lastHeight) ? settings.window.lastHeight : height;
-  return clampBounds({ x, y, width: savedWidth, height: savedHeight }, area);
+  return clampBounds({ x, y, width, height }, area);
 }
 
 export function calculateStartupBounds(settings: AppSettings): Rectangle {
-  const { positionMode, lastX, lastY, lastWidth, lastHeight, width, height } = settings.window;
+  const { positionMode, lastX, lastY, width, height } = settings.window;
   const hasLastPosition = positionMode === 'last' && validNumber(lastX) && validNumber(lastY);
   const display = hasLastPosition
     ? screen.getDisplayMatching({
       x: lastX,
       y: lastY,
-      width: validNumber(lastWidth) ? lastWidth : width,
-      height: validNumber(lastHeight) ? lastHeight : height
+      width,
+      height
     })
     : getDisplayForSettings(settings);
   return calculateStartupBoundsOnDisplay(settings, display);

@@ -1,6 +1,7 @@
 export type WindowMode = 'normal' | 'widget';
 export type StartupPage = 'timeline' | 'inbox';
 export type PositionMode = 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right' | 'center' | 'custom' | 'last';
+export type WidgetEdge = 'left' | 'right';
 
 export interface WindowSettings {
   mode: WindowMode;
@@ -14,6 +15,8 @@ export interface WindowSettings {
   lastY?: number;
   lastWidth?: number;
   lastHeight?: number;
+  widgetEdge?: WidgetEdge;
+  widgetY?: number;
 }
 
 export interface AppSettings {

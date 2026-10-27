@@ -1,7 +1,7 @@
 import { app } from 'electron';
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
-import { AppSettings, DEFAULT_SETTINGS, PositionMode, StartupPage, WindowMode } from './types';
+import { AppSettings, DEFAULT_SETTINGS, PositionMode, StartupPage, WidgetEdge, WindowMode } from './types';
 
 function numberOr(value: unknown, fallback: number): number {
   return typeof value === 'number' && Number.isFinite(value) ? value : fallback;
@@ -14,6 +14,7 @@ function sanitize(raw: unknown): AppSettings {
   const positionMode: PositionMode = ['top-left', 'top-right', 'bottom-left', 'bottom-right', 'center', 'custom', 'last'].includes(String(window.positionMode))
     ? String(window.positionMode) as PositionMode : 'center';
   const startupPage: StartupPage = value.startupPage === 'inbox' ? 'inbox' : 'timeline';
+  const widgetEdge: WidgetEdge | undefined = window.widgetEdge === 'left' || window.widgetEdge === 'right' ? window.widgetEdge : undefined;
   const result: AppSettings = {
     autoStart: value.autoStart === true,
     startupPage,
@@ -28,7 +29,9 @@ function sanitize(raw: unknown): AppSettings {
       lastX: numberOr(window.lastX, Number.NaN),
       lastY: numberOr(window.lastY, Number.NaN),
       lastWidth: numberOr(window.lastWidth, Number.NaN),
-      lastHeight: numberOr(window.lastHeight, Number.NaN)
+      lastHeight: numberOr(window.lastHeight, Number.NaN),
+      widgetEdge,
+      widgetY: numberOr(window.widgetY, Number.NaN)
     }
   };
   const normalized = normalizeSize(result.window.width, result.window.height);
@@ -45,7 +48,7 @@ export function normalizeSize(width: number, height: number): { width: number; h
 
 function stripNaN(settings: AppSettings): AppSettings {
   const copy = JSON.parse(JSON.stringify(settings)) as AppSettings;
-  for (const key of ['x', 'y', 'lastX', 'lastY', 'lastWidth', 'lastHeight'] as const) {
+  for (const key of ['x', 'y', 'lastX', 'lastY', 'lastWidth', 'lastHeight', 'widgetY'] as const) {
     if (typeof copy.window[key] === 'number' && !Number.isFinite(copy.window[key])) delete copy.window[key];
   }
   return copy;
