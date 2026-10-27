@@ -21,7 +21,8 @@ async function main(): Promise<void> {
   session.defaultSession.setPermissionRequestHandler((_webContents, permission, callback) => callback(permission === 'notifications'));
   const store = new SettingsStore();
   await store.load();
-  manager = new WindowManager(store, app.commandLine.hasSwitch('autostart'));
+  const autoStarted = app.commandLine.hasSwitch('autostart') || process.argv.includes('--autostart');
+  manager = new WindowManager(store, autoStarted);
   for (const channel of ['shell-navigate', 'shell-settings', 'shell-refresh', 'shell-quit', 'settings-save', 'settings-close', 'settings-reset-window', 'settings-use-current-size', 'widget-hover', 'widget-expand', 'widget-collapse', 'widget-drag-start', 'widget-drag-move', 'widget-drag-end']) {
     ipcMain.on(channel, (_event, ...args) => {
       if (channel === 'shell-quit') void manager?.quit().finally(() => app.quit());
