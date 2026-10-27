@@ -1,0 +1,52 @@
+name: Publish Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag to publish
+        required: true
+        type: string
+      linux_run_id:
+        description: Successful Linux build run ID
+        required: true
+        type: string
+      windows_run_id:
+        description: Successful Windows build run ID
+        required: true
+        type: string
+
+permissions:
+  actions: read
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Download Linux artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: structured-desktop-linux
+          path: release/linux
+          run-id: ${{ inputs.linux_run_id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Download Windows artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: structured-desktop-windows
+          path: release/windows
+          run-id: ${{ inputs.windows_run_id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: >-
+          gh release create "$RELEASE_TAG"
+          release/linux/*.deb
+          release/linux/*.AppImage
+          release/windows/*.exe
+          --verify-tag
+          --title "Structured Desktop $RELEASE_TAG"
+          --notes "组件模式的圆球沿屏幕边缘平移收起，完整圆球露出一半；鼠标移入和移出时平滑移动，修复点击展开后窗口意外收回的问题。"
