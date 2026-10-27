@@ -36,7 +36,7 @@ export class WindowManager {
   private navigationQueue: Promise<void> = Promise.resolve();
   private navigationError?: string;
 
-  constructor(private readonly store: SettingsStore) { this.currentPage = store.get().startupPage; }
+  constructor(private readonly store: SettingsStore, private readonly autoStarted = false) { this.currentPage = store.get().startupPage; }
 
   getWindow(): BrowserWindow | undefined { return this.window; }
   getPage(): StartupPage { return this.currentPage; }
@@ -61,8 +61,10 @@ export class WindowManager {
       this.widgetOrbY = Number.isFinite(settings.window.widgetY)
         ? settings.window.widgetY!
         : startupBounds.y + Math.round((startupBounds.height - WIDGET_ORB_SIZE) / 2);
-      bounds = calculateCollapsedWidgetBounds(display.workArea, this.widgetEdge, this.widgetOrbY);
-      this.widgetExpanded = false;
+      this.widgetExpanded = this.autoStarted;
+      bounds = this.widgetExpanded
+        ? calculateExpandedWidgetBounds(display.workArea, this.widgetEdge, this.widgetOrbY, settings.window.width, settings.window.height)
+        : calculateCollapsedWidgetBounds(display.workArea, this.widgetEdge, this.widgetOrbY);
     }
     const options: BrowserWindowConstructorOptions = {
       ...bounds,
@@ -111,22 +113,31 @@ export class WindowManager {
     await this.attachStructuredView();
     await this.attachLocalView();
     this.layout();
-    if (settings.window.mode === 'widget') this.setCollapsedWidgetShape();
+    if (settings.window.mode === 'widget' && !this.widgetExpanded) this.setCollapsedWidgetShape();
     window.show();
-    if (process.platform === 'linux' && detectWindowEnvironment().precisePositioning) {
-      const [x, y] = [bounds.x, bounds.y];
-      const positionTimer = setTimeout(() => {
-        if (!window.isDestroyed() && window.isVisible() && !window.isMaximized()) window.setPosition(x, y);
-      }, 150);
-      positionTimer.unref();
-    }
+    if (process.platform === 'linux' && detectWindowEnvironment().precisePositioning) this.correctInitialPosition(window, bounds);
     // Mutter may ignore the constructor hint until the X11 window is mapped.
     // Apply it again after showing so Widget mode can leave the taskbar on
     // GNOME/X11 while keeping the window interactive.
     window.setSkipTaskbar(settings.window.mode === 'widget');
     window.setAlwaysOnTop(settings.window.mode === 'widget');
-    if (settings.window.mode !== 'widget') window.focus();
+    if (settings.window.mode !== 'widget' || this.widgetExpanded) window.focus();
     return window;
+  }
+
+  private correctInitialPosition(window: BrowserWindow, target: Rectangle): void {
+    // Mutter can apply its initial placement after show(); reassert the requested
+    // bounds briefly while the mapped X11 window settles.
+    for (const delay of [0, 120, 360, 800]) {
+      const timer = setTimeout(() => {
+        if (window.isDestroyed() || !window.isVisible() || window.isMaximized()) return;
+        const current = window.getBounds();
+        if (current.x !== target.x || current.y !== target.y || current.width !== target.width || current.height !== target.height) {
+          window.setBounds(target);
+        }
+      }, delay);
+      timer.unref();
+    }
   }
 
   private async attachStructuredView(): Promise<void> {
