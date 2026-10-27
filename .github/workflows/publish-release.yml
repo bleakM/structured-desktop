@@ -47,6 +47,7 @@ jobs:
           release/linux/*.deb
           release/linux/*.AppImage
           release/windows/*.exe
+          --repo bleakM/structured-desktop
           --verify-tag
           --title "Structured Desktop $RELEASE_TAG"
           --notes "组件模式的圆球沿屏幕边缘平移收起，完整圆球露出一半；鼠标移入和移出时平滑移动，修复点击展开后窗口意外收回的问题。"
