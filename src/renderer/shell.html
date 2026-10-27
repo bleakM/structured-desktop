@@ -60,8 +60,9 @@
     });
     const endOrbDrag = (event, open) => {
       if (pointerId !== event.pointerId) return;
-      pointerId = null; pointerStart = null; send('widget-drag-end');
-      if (open && !dragged) send('widget-expand');
+      const openAfterRelease = open && !dragged;
+      pointerId = null; pointerStart = null; send('widget-drag-end', openAfterRelease);
+      if (openAfterRelease) send('widget-expand');
       dragged = false;
     };
     orb.addEventListener('pointerup', (event) => endOrbDrag(event, true));

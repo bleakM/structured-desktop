@@ -69,7 +69,7 @@ export class WindowManager {
       show: false,
       title: 'Structured Desktop',
       frame: settings.window.mode === 'normal',
-      type: process.platform === 'linux' && settings.window.mode === 'widget' ? 'toolbar' : undefined,
+      type: process.platform === 'linux' && settings.window.mode === 'widget' ? 'dock' : undefined,
       resizable: true,
       movable: true,
       minimizable: true,
@@ -212,7 +212,7 @@ export class WindowManager {
     if (channel === 'widget-collapse') await this.collapseWidget();
     if (channel === 'widget-drag-start') this.startWidgetDrag();
     if (channel === 'widget-drag-move') this.moveWidgetDrag();
-    if (channel === 'widget-drag-end') await this.endWidgetDrag();
+    if (channel === 'widget-drag-end') await this.endWidgetDrag(args[0] === true);
   }
 
   private async sendShellState(): Promise<void> {
@@ -353,10 +353,7 @@ export class WindowManager {
 
   private animateWidgetBounds(target: Rectangle, duration = 220): Promise<void> {
     if (!this.window || this.window.isDestroyed()) return Promise.resolve();
-    if (this.widgetPositionTimer) clearTimeout(this.widgetPositionTimer);
-    this.widgetPositionTimer = undefined;
-    this.widgetPositionAnimationResolve?.();
-    this.widgetPositionAnimationResolve = undefined;
+    this.cancelWidgetBoundsAnimation();
     const animationId = ++this.widgetPositionAnimation;
     const start = this.window.getBounds();
     if (start.x === target.x && start.y === target.y && start.width === target.width && start.height === target.height) return Promise.resolve();
@@ -392,6 +389,14 @@ export class WindowManager {
     });
   }
 
+  private cancelWidgetBoundsAnimation(): void {
+    if (this.widgetPositionTimer) clearTimeout(this.widgetPositionTimer);
+    this.widgetPositionTimer = undefined;
+    this.widgetPositionAnimation += 1;
+    this.widgetPositionAnimationResolve?.();
+    this.widgetPositionAnimationResolve = undefined;
+  }
+
   private async expandWidget(): Promise<void> {
     if (!this.window || this.window.isDestroyed() || this.store.get().window.mode !== 'widget') return;
     this.clearWidgetHoverTimer();
@@ -400,6 +405,7 @@ export class WindowManager {
       this.window.focus();
       return;
     }
+    this.cancelWidgetBoundsAnimation();
     const settings = this.store.get();
     const display = this.getWidgetDisplay();
     const bounds = calculateExpandedWidgetBounds(display.workArea, this.widgetEdge, this.widgetOrbY, settings.window.width, settings.window.height);
@@ -449,9 +455,10 @@ export class WindowManager {
     );
   }
 
-  private async endWidgetDrag(): Promise<void> {
+  private async endWidgetDrag(openAfterRelease: boolean): Promise<void> {
     if (!this.window || !this.widgetDragStart) return;
     this.widgetDragStart = undefined;
+    if (openAfterRelease) return;
     const bounds = this.window.getBounds();
     const display = screen.getDisplayMatching(bounds);
     const midpoint = display.workArea.x + display.workArea.width / 2;
@@ -461,6 +468,7 @@ export class WindowManager {
     this.widgetDisplayId = String(display.id);
     this.setCollapsedWidgetShape();
     await this.animateWidgetBounds(snapped);
+    if (this.widgetExpanded) return;
     await this.store.update({ window: { widgetEdge: this.widgetEdge, widgetY: this.widgetOrbY, displayId: this.widgetDisplayId } });
     await this.sendShellState();
   }
